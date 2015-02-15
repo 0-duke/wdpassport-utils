@@ -371,6 +371,9 @@ def main(argv):
 		print fail("You need to have root privileges to run this script.")
 		sys.exit(1)
 	
+	if len(sys.argv) == 1:
+		args.status = True
+	
 	if args.device:
 		DEVICE = args.device
 	else:

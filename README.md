@@ -7,7 +7,7 @@ This script let you unlock, change password and erase Western Digital Passport d
 
 <h1> Install </h1>
 
-In order to run this script you need to install "lsscsi" and "py_sg.py". 
+In order to run this script you need to install "lsscsi" command and "py_sg" library. 
 
 For example on Ubuntu you can install the missing dependancies with
 ```

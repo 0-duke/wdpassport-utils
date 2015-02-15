@@ -11,7 +11,7 @@ import subprocess
 try:
     import py_sg
 except ImportError, e:
-    print fail("You need to install the \"py_sg\" module.")
+    print "You need to install the \"py_sg\" module."
     sys.exit(1)
 
 BLOCK_SIZE = 512

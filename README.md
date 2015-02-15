@@ -11,8 +11,8 @@ In order to run this script you need to install "lsscsi" and "py_sg.py".
 
 For example on Ubuntu you can install the missing dependancies with
 ```
-pip install py_sg
-apt-get install lsscsi
+sudo apt-get install python-pip python-dev lsscsi
+sudo pip install py_sg
 ```
 
 <h1> Usage </h1>

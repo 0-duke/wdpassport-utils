@@ -348,10 +348,16 @@ def get_device_info(device = None):
 ## Enable mount operations 
 ## Tells the system to scan the "new" (unlocked) device
 def enable_mount(device):
-	rp,hn = get_device_info(device)[1:]
-	p = subprocess.Popen("echo 1 > /sys/block/" + rp + "/device/delete",shell=True)
-	p = subprocess.Popen("echo \"- - -\" > /sys/class/scsi_host/host" + hn + "/scan",shell=True)
-	print success("Now depending on your system you can mount your device or it will be automagically mounted.")
+	sec_status, cipher_id, key_reset = get_encryption_status()
+        ## Device should be in the correct state 
+        if (sec_status == 0x00 or sec_status == 0x02):
+		rp,hn = get_device_info(device)[1:]
+		p = subprocess.Popen("echo 1 > /sys/block/" + rp + "/device/delete",shell=True)
+		p = subprocess.Popen("echo \"- - -\" > /sys/class/scsi_host/host" + hn + "/scan",shell=True)
+		print success("Now depending on your system you can mount your device or it will be automagically mounted.")
+	else:
+                print fail("Device needs to be unlocked in order to mount it.")
+
 
 ## Main function, get parameters and manage operations
 def main(argv): 

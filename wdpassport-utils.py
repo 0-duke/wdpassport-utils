@@ -290,7 +290,7 @@ def change_password():
 ## Change the internal key used for encryption, every data on the device would be permanently unaccessible.
 ## Device forgets even the partition table so you have to make a new one.
 def secure_erase(cipher_id = 0):
-	cdb = [0xC1, 0xE3, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08, 0x00,0x00,0x00,0x00,0x00,0x00,0x00]
+	cdb = [0xC1, 0xE3, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08, 0x00]
 	status, current_cipher_id, key_reset = get_encryption_status()
 
 	if cipher_id == 0:
@@ -300,16 +300,22 @@ def secure_erase(cipher_id = 0):
 
 	if cipher_id == 0x10 or cipher_id == 0x12 or cipher_id == 0x18:
 		pwblen = 16;
-	#	pw_block[3] = 0x01
+		pw_block[3] = 0x01
 	elif cipher_id == 0x20 or cipher_id == 0x22 or cipher_id == 0x28:
 		pwblen = 32;
-	#	pw_block[3] = 0x01
+		pw_block[3] = 0x01
 	elif cipher_id == 0x30:
 		pwblen = 32;
 	#	pw_block[3] = 0x00
 	else:
 		print fail("Unsupported cipher %s" % cipher_id)
 		sys.exit(1)
+
+	## Set the actual lenght of pw_block (8 bytes + pwblen pseudorandom data)
+	cdb[8] = pwblen + 8
+	## Fill pw_block with random data
+	for rand_byte in os.urandom(pwblen):
+		pw_block.append(ord(rand_byte))
 
 	## key_reset needs to be retrieved immidiatly before the reset request
 	#status, current_cipher_id, key_reset = get_encryption_status()
@@ -318,6 +324,7 @@ def secure_erase(cipher_id = 0):
 	for c in key_reset:
 		cdb[i] = ord(c)
 		i += 1
+
 	try:
 		py_sg.write(dev, _scsi_pack_cdb(cdb), _scsi_pack_cdb(pw_block))
 		print success("Device erased. You need to create a new partition on the device (Hint: fdisk and mkfs)")

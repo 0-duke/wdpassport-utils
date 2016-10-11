@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+import pickle
 import sys
 import os
 import struct
@@ -190,7 +191,7 @@ def mk_password_block(passwd, iteration, salt):
 
 
 ## Unlock the device
-def unlock():
+def unlock(save_passwd, unlock_with_saved_passwd):
     cdb = [0xC1, 0xE1, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x28, 0x00]
     sec_status, cipher_id, key_reset = get_encryption_status()
     ## Device should be in the correct state
@@ -211,12 +212,23 @@ def unlock():
         sys.exit(1)
 
     ## Get password from user
-    print(question("Insert password to Unlock the device"))
-    passwd = getpass.getpass()
 
-    iteration, salt, hint = read_handy_store_block1()
+    if not unlock_with_saved_passwd:
+        print(question("Insert password to Unlock the device"))
+        passwd = getpass.getpass()
 
-    pwd_hashed = mk_password_block(passwd, iteration, salt)
+        iteration, salt, hint = read_handy_store_block1()
+
+        pwd_hashed = mk_password_block(passwd, iteration, salt)
+    else:
+        print(success("Unlock use saved password"))
+        passwd_bin = open("passwd.bin", "r")
+        pwd_hashed = pickle.load(passwd_bin)
+
+    if save_passwd:
+        passwd_bin = open("passwd.bin", "w")
+        pickle.dump(pwd_hashed, passwd_bin)
+
     pw_block = [0x45, 0x00, 0x00, 0x00, 0x00, 0x00]
     for c in htons(pwblen):
         pw_block.append(ord(c))
@@ -402,10 +414,14 @@ def main(argv):
     parser.add_argument("-s", "--status", required=False, action="store_true",
                         help="Check device status and encryption type")
     parser.add_argument("-u", "--unlock", required=False, action="store_true", help="Unlock")
+    parser.add_argument("-us", "--unlock_with_saved_passwd", required=False, action="store_true",
+                        help="Unlock with saved passwd")
     parser.add_argument("-m", "--mount", required=False, action="store_true",
                         help="Enable mount point for an unlocked device")
     parser.add_argument("-c", "--change_passwd", required=False, action="store_true",
                         help="Change (or disable) password")
+    parser.add_argument("-sp", "--save_passwd", required=False, action="store_true",
+                        help="Save passwd")
     parser.add_argument("-e", "--erase", required=False, action="store_true", help="Secure erase device")
     parser.add_argument("-d", "--device", dest="device", required=False,
                         help="Force device path (ex. /dev/sdb). Usually you don't need this option.")
@@ -442,7 +458,11 @@ def main(argv):
         print("\tSecurity status: %s" % sec_status_to_str(status))
         print("\tEncryption type: %s" % cipher_id_to_str(cipher_id))
     if args.unlock:
-        unlock()
+        unlock(args.save_passwd, False)
+
+    if args.unlock_with_saved_passwd:
+        unlock(args.save_passwd, True)
+
     if args.change_passwd:
         change_password()
 

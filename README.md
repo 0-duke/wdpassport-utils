@@ -35,6 +35,16 @@ Get device encryption status and cipher suites used.
 You will be asked to enter the unlock password. If everything is fine device will be unlocked.
 
 ```
+-us, --unlock_with_saved_passwd Unlock with the password saved
+```
+Unlock using the saved password. If everything is fine device will be unlocked.
+
+```
+-sp, --save_passwd    Save password
+```
+When unlock password, it will save user password to passwd.bin, so you can use "-us" for next time to auto unlock.
+
+```
 -m, --mount           Enable mount point for an unlocked device
 ```
 After unlock, your operating system still thinks that your device is a strange thing attached to his usb port and he don't know how to manage. You need this option to force the O.S. to rescan the device and handle it as a normal external usb harddrive.

@@ -3,11 +3,11 @@ WD Passport Ultra Complete Utilities for Linux.
 
 <h1> Intro </h1>
 
-This script let you unlock, change password and erase Western Digital Passport devices on Linux platform. 
+This script let you unlock, change password and erase Western Digital Passport devices on Linux platform.
 
 <h1> Install </h1>
 
-In order to run this script you need to install "lsscsi" command and "py_sg" library. 
+In order to run this script you need to install "lsscsi" command and "py_sg" library.
 
 For example on Ubuntu you can install the missing dependancies with
 ```
@@ -17,7 +17,7 @@ sudo pip install py_sg
 
 <h1> Usage </h1>
 
-Run script as root. 
+Run script as root.
 
 There are few options:
 ```
@@ -33,6 +33,7 @@ Get device encryption status and cipher suites used.
 -u, --unlock          Unlock
 ```
 You will be asked to enter the unlock password. If everything is fine device will be unlocked.
+If -p/--password is given, you will not be asked to enter the password.
 
 ```
 -m, --mount           Enable mount point for an unlocked device
@@ -46,6 +47,7 @@ This option let you to encrypt your device, remove password protection and chang
 If device is "without lock" and you want it to be password protect leave the "OLD password" field empty and choose insert the new password.
 If the device is password protected and you want to be as a normal unencrypted device, inser the old password and leave the "NEW password" field empty.
 If you only want to change password do it as usual.
+If -p/--password is given, you will not be asked to enter the old password.
 
 ```
 -e, --erase           Secure erase device
@@ -58,8 +60,14 @@ If you only want to change password do it as usual.
 The script will try to auto detect the current device path of your WD Passport device.
 If something is wrong or you want to manually specify the device path yourself you can use this option.
 
+```
+-p PASSWORD, --password PASSWORD  Specify a password
+```
+Lets you specify a password for -u/--unlock and -c/--change_paswd.
+If this argument is given, you will not be asked to enter a password once more.
+
 <h1>Disclaimer</h1>
-I based my research on Dan Lukes (FreeBSD version) and KenMacD (very simple unlocker) works. 
+I based my research on Dan Lukes (FreeBSD version) and KenMacD (very simple unlocker) works.
 I'm in no way sponsored by or connected with Western Digital.
 Use any of the information contained in this repository at your own risk. I accept no
 responsibility.

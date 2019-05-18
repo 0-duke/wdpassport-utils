@@ -91,7 +91,7 @@ def read_handy_store(page):
 	for c in htonl(page):
 		cdb[i] = c
 		i+=1
-	data = py_sg.read(dev, _scsi_pack_cdb(cdb), BLOCK_SIZE)
+	data = py_sg.read_as_bin_str(dev, _scsi_pack_cdb(cdb), BLOCK_SIZE)
 	return data
 
 ## Calculate checksum on the returned data
@@ -124,7 +124,7 @@ def hsb_checksum(data):
 ##
 def get_encryption_status():
 	cdb = [0xC0, 0x45, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x30, 0x00]
-	data = py_sg.read(dev, _scsi_pack_cdb(cdb), BLOCK_SIZE)
+	data = py_sg.read_as_bin_str(dev, _scsi_pack_cdb(cdb), BLOCK_SIZE)
 	if data[0] != 0x45:
 		print(fail("Wrong encryption status signature %s" % hex(data[0])))
 		sys.exit(1)

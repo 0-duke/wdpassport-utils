@@ -33,11 +33,6 @@ def question(str):
 def title(str):
 	return "\033[93m" + str + "\033[0m"
 
-### Return if the current user is root
-def is_root_user():
-	if os.geteuid() != 0: return False
-	else: return True
-
 ## Convert an integer to his human-readable secure status
 def sec_status_to_str(security_status):
 	if security_status == 0x00:
@@ -379,10 +374,6 @@ def main(argv):
 	parser.add_argument("-d", "--device", dest="device", required=False, help="Force device path (ex. /dev/sdb). Usually you don't need this option.")
 
 	args = parser.parse_args()
-	
-	if not is_root_user():
-		print(fail("You need to have root privileges to run this script."))
-		sys.exit(1)
 	
 	if len(sys.argv) == 1:
 		args.status = True

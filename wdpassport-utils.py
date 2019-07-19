@@ -65,7 +65,7 @@ def cipher_id_to_str(cipher_id):
 	elif cipher_id == 0x30:
 		return "Full Disk Encryption";
 	else:
-		return "unknown";
+		return "Unknown ({})".format(hex(cipher_id));
 
 ## Transform "cdb" in char[]
 def _scsi_pack_cdb(cdb):
@@ -107,7 +107,7 @@ def hsb_checksum(data):
 ##		0x02 => Unlocked
 ##		0x06 => Locked, unlock blocked
 ##		0x07 => No keys
-## CurrentChiperID
+## CurrentCipherID
 ##		0x10 =>	AES_128_ECB
 ##		0x12 =>	AES_128_CBC
 ##		0x18 =>	AES_128_XTS
@@ -123,8 +123,12 @@ def get_encryption_status():
 	if data[0] != 0x45:
 		print(fail("Wrong encryption status signature %s" % hex(data[0])))
 		sys.exit(1)
-	##  SecurityStatus, CurrentChiperID, KeyResetEnabler
-	return (data[3], data[4], data[8:12])
+	return {
+		"Locked": data[3],
+		"Cipher": data[4],
+		"PasswordLength": struct.unpack('!H', data[6:8])[0],
+		"KeyResetEnabler": data[8:12],
+	}
 
 ## Call the device and get the first block of Handy Store.
 ## The function returns three values:
@@ -169,22 +173,13 @@ def mk_password_block(passwd, iteration, salt):
 ## Unlock the device
 def unlock():
 	cdb = [0xC1,0xE1,0x00,0x00,0x00,0x00,0x00,0x00,0x28,0x00]
-	sec_status, cipher_id, key_reset = get_encryption_status()
 	## Device should be in the correct state 
-	if (sec_status == 0x00 or sec_status == 0x02):
+	status = get_encryption_status()
+	if (status["Locked"] in (0x00, 0x02)):
 		print(fail("Your device is already unlocked!"))
 		return
-	elif (sec_status != 0x01):
+	elif (status["Locked"] != 0x01):
 		print(fail("Wrong device status!"))
-		sys.exit(1)
-	if cipher_id == 0x10 or cipher_id == 0x12 or cipher_id == 0x18:
-		pwblen = 16;
-	elif cipher_id == 0x20 or cipher_id == 0x22 or cipher_id == 0x28:
-		pwblen = 32;
-	elif cipher_id == 0x30:
-		pwblen = 32;
-	else:
-		print(fail("Unsupported cipher %s" % cipher_id))
 		sys.exit(1)
 	
 	## Get password from user
@@ -195,6 +190,7 @@ def unlock():
 	
 	pwd_hashed = mk_password_block(passwd, iteration, salt)
 	pw_block = [0x45,0x00,0x00,0x00,0x00,0x00]
+	pwblen = status["PasswordLength"]
 	for c in htons(pwblen):
 		pw_block.append(c)
 
@@ -218,18 +214,10 @@ def unlock():
 ##
 def change_password():
 	cdb = [0xC1, 0xE2, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x48, 0x00]
-	sec_status, cipher_id, key_reset = get_encryption_status()
-	if (sec_status != 0x02 and sec_status != 0x00):
+	# Check drive's current status.
+	status = get_encryption_status()
+	if (status["Locked"] not in (0x00, 0x02)):
 		print(fail("Device has to be unlocked or without encryption to perform this operation"))
-		sys.exit(1)
-	if cipher_id == 0x10 or cipher_id == 0x12 or cipher_id == 0x18:
-		pwblen = 16;
-	elif cipher_id == 0x20 or cipher_id == 0x22 or cipher_id == 0x28:
-		pwblen = 32;
-	elif cipher_id == 0x30:
-		pwblen = 32;
-	else:
-		print(fail("Unsupported cipher %s" % cipher_id))
 		sys.exit(1)
 
 	print(question("Insert the OLD password"))
@@ -249,8 +237,11 @@ def change_password():
 
 	iteration,salt,hint = read_handy_store_block1()
 	pw_block = [0x45,0x00,0x00,0x00,0x00,0x00]
-	for c in htons(pwblen):
-		pw_block.append(ord(c))
+
+	# Get the length in bytes of the key for the drive's current cipher
+	# and put that length into the command.
+	pwblen = status["PasswordLength"]
+	pw_block += list(htons(pwblen))
 
 	if (len(old_passwd) > 0):
 		old_passwd_hashed = mk_password_block(old_passwd, iteration, salt)
@@ -284,40 +275,30 @@ def change_password():
 
 ## Change the internal key used for encryption, every data on the device would be permanently unaccessible.
 ## Device forgets even the partition table so you have to make a new one.
-def secure_erase(cipher_id = 0):
+def secure_erase():
 	cdb = [0xC1, 0xE3, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08, 0x00]
-	status, current_cipher_id, key_reset = get_encryption_status()
+	status = get_encryption_status()
 
-	if cipher_id == 0:
-		cipher_id = current_cipher_id
+	cipher_id = status["Cipher"]
 
-	pw_block = [0x45,0x00,0x00,0x00,0x30,0x00,0x00,0x00]
+	pw_block = [0x45,0x00,0x00,0x00,cipher_id,0x00,0x00,0x00]
 
-	if cipher_id == 0x10 or cipher_id == 0x12 or cipher_id == 0x18:
-		pwblen = 16;
-		pw_block[3] = 0x01
-	elif cipher_id == 0x20 or cipher_id == 0x22 or cipher_id == 0x28:
-		pwblen = 32;
-		pw_block[3] = 0x01
-	elif cipher_id == 0x30:
-		pwblen = 32;
-	#	pw_block[3] = 0x00
-	else:
-		print(fail("Unsupported cipher %s" % cipher_id))
-		sys.exit(1)
+	# For old ciphers, this code used to set the "combine" flag.
+	# pw_block[3] = 0x01
 
 	## Set the actual lenght of pw_block (8 bytes + pwblen pseudorandom data)
+	pwblen = status["PasswordLength"]
 	cdb[8] = pwblen + 8
 	## Fill pw_block with random data
 	for rand_byte in os.urandom(pwblen):
-		pw_block.append(ord(rand_byte))
+		pw_block.append(rand_byte)
 
 	## key_reset needs to be retrieved immidiatly before the reset request
 	#status, current_cipher_id, key_reset = get_encryption_status()
-	key_reset = get_encryption_status()[2]
+	key_reset = status["KeyResetEnabler"]
 	i = 2
 	for c in key_reset:
-		cdb[i] = ord(c)
+		cdb[i] = c
 		i += 1
 
 	try:
@@ -331,9 +312,9 @@ def secure_erase(cipher_id = 0):
 ## Enable mount operations 
 ## Tells the system to scan the "new" (unlocked) device
 def enable_mount(device):
-	sec_status, cipher_id, key_reset = get_encryption_status()
+	status = get_encryption_status()
 	## Device should be in the correct state 
-	if not (sec_status == 0x00 or sec_status == 0x02):
+	if status["Locked"] not in (0x00, 0x02):
 		print(fail("Device needs to be unlocked in order to mount it."))
 		return
 
@@ -404,10 +385,10 @@ def main(argv):
 		sys.exit(1)
 
 	if args.status:
-		status, cipher_id, key_reset = get_encryption_status()
-		print(success("Device state"))
-		print("\tSecurity status: %s" % sec_status_to_str(status))
-		print("\tEncryption type: %s" % cipher_id_to_str(cipher_id))
+		status = get_encryption_status()
+		print("Security status: %s" % sec_status_to_str(status["Locked"]))
+		print("Encryption type: %s" % cipher_id_to_str(status["Cipher"]))
+
 	if args.unlock:
 		unlock()
 	if args.change_passwd:
@@ -417,9 +398,9 @@ def main(argv):
 		print(question("Any data on the device will be lost. Are you sure you want to continue? [y/N]"))
 		r = sys.stdin.read(1)
 		if r.lower() == 'y':
-			secure_erase(0)
+			secure_erase()
 		else:
-			print(success("Ok. Bye."))
+			print(success("Ok, nevermind."))
 	if args.mount:
 		enable_mount(device)
 

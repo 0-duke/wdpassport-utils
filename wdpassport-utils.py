@@ -6,12 +6,12 @@ import getpass
 from hashlib import sha256
 from random import randint
 import argparse
-import subprocess
+import pyudev
 
 try:
 	import py_sg
 except ImportError as e:
-	print("You need to install the \"py_sg\" module.")
+	print("You need to install the \"py_sg\" module. Try 'pip3 install --user git+https://github.com/crypto-universe/py_sg'.")
 	sys.exit(1)
 
 BLOCK_SIZE = 512
@@ -328,37 +328,25 @@ def secure_erase(cipher_id = 0):
 		print(fail("Something wrong."))
 		pass
 
-## Get device info through "lsscsi" command
-def get_device_info(device = None):
-	if device == None: grep_string = "Passport"
-	else: grep_string = device
-
-	## Ex. from the following string 
-	## "[23:0:0:0]   disk    WD       My Passport 0820 1012  /dev/sdb"
-	## We extract 
-	p = subprocess.Popen("lsscsi | grep " + grep_string + " | grep -oP \"\/([a-zA-Z]+)\/([a-zA-Z0-9]+)\"",shell=True,stdout=subprocess.PIPE)
-	## /dev/sdb
-	complete_path = p.stdout.read().rstrip()
-	p = subprocess.Popen("lsscsi | grep " + grep_string + " | grep -oP \"\/([a-zA-Z]+)\/([a-zA-Z0-9]+)\" | cut -d '/' -f 3",shell=True,stdout=subprocess.PIPE)
-	## sdb
-	relative_path = p.stdout.read().rstrip()
-	p = subprocess.Popen("lsscsi -d|grep " + grep_string + "|cut -d ':' -f 1|cut -d '[' -f 2",shell=True,stdout=subprocess.PIPE)
-	## 23
-	host_number = p.stdout.read().rstrip()
-	return (complete_path, relative_path, host_number)
-
 ## Enable mount operations 
 ## Tells the system to scan the "new" (unlocked) device
 def enable_mount(device):
 	sec_status, cipher_id, key_reset = get_encryption_status()
 	## Device should be in the correct state 
-	if (sec_status == 0x00 or sec_status == 0x02):
-		rp,hn = get_device_info(device)[1:]
-		p = subprocess.Popen("echo 1 > /sys/block/" + rp + "/device/delete",shell=True)
-		p = subprocess.Popen("echo \"- - -\" > /sys/class/scsi_host/host" + hn + "/scan",shell=True)
-		print(success("Now depending on your system you can mount your device or it will be automagically mounted."))
-	else:
+	if not (sec_status == 0x00 or sec_status == 0x02):
 		print(fail("Device needs to be unlocked in order to mount it."))
+		return
+
+	scsi_host = device.find_parent(subsystem="scsi", device_type="scsi_host").sys_name
+
+	# Detach(?) the device.
+	with open("/sys/block/{}/device/delete".format(device.sys_name), "w") as f:
+		f.write("1\n")
+
+	# Scan for devices.
+	with open("/sys/class/scsi_host/{}/scan".format(scsi_host), "w") as f:
+		f.write("- - -\n")
+	print(success("Device re-scanned."))
 
 
 ## Main function, get parameters and manage operations
@@ -378,18 +366,39 @@ def main(argv):
 	if len(sys.argv) == 1:
 		args.status = True
 	
-	if args.device:
-		DEVICE = args.device
-	else:
-		## Get occurrences of "Passport" devices
-		p = subprocess.Popen("lsscsi | grep Passport | wc -l",shell=True,stdout=subprocess.PIPE)
-		if int(p.stdout.read().rstrip()) > 1:
-			print(fail("Multiple occurences of \"My Passport\" detected. You should specify a device manually (with -d option)."))
-			sys.exit(1)
-		DEVICE = get_device_info()[0]
+	## Get occurrences of "Passport" devices. Iterate over each disk block device
+	## and go up to its parents to find a "WD Passport" device.
+	passport_devices = []
+	context = pyudev.Context()
+	for disk_device in context.list_devices(subsystem='block', DEVTYPE='disk'):
+		# If -d is used, filter devices.
+		if args.device and disk_device.device_node != args.device:
+			continue
 
+		# Scan parent for device name.
+		device = disk_device
+		while device is not None:
+			if "ID_SERIAL" in device:
+				if device.properties["ID_SERIAL"].startswith("Western_Digital_My_Passport_"):
+					passport_devices.append(disk_device)
+			device = device.parent
+
+	if len(passport_devices) == 0:
+		print(fail("No Western Digital Passport device found."))
+		sys.exit(1)
+	elif len(passport_devices) > 1:
+		print(fail("Multiple Western Digital Passport devices found. Use --device /dev/___ to choose."))
+		sys.exit(1)
+
+	device = passport_devices[0]
+	print("Device: " + device.device_node)
+
+	## Open the device.
 	try:
-		dev = open(DEVICE,"r+b")
+		dev = open(device.device_node,"r+b")
+	except PermissionError:
+		print(fail("Could not open device. Try running as root with 'sudo ...'."))
+		sys.exit(1)
 	except:
 		print(fail("Something wrong opening device \"%s\"" % (DEVICE)))
 		sys.exit(1)
@@ -411,9 +420,8 @@ def main(argv):
 			secure_erase(0)
 		else:
 			print(success("Ok. Bye."))
-
 	if args.mount:
-		enable_mount(DEVICE)
+		enable_mount(device)
 
 if __name__ == "__main__":
 	main(sys.argv[1:])

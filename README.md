@@ -16,7 +16,9 @@ Or follow the instructions at https://github.com/crypto-universe/py_sg.
 
 <h1> Usage </h1>
 
-Run script as root. 
+Run script as root.
+
+When used without any arguments, the status of the drive is shown.
 
 There are few options:
 ```
@@ -24,10 +26,6 @@ There are few options:
 ```
 Lists all possible arguments.
 
-```
--s, --status          Check device status and encryption type
-```
-Get device encryption status and cipher suites used.
 ```
 -u, --unlock          Unlock
 ```
@@ -58,7 +56,7 @@ The script will try to auto detect the current device path of your WD Passport d
 If something is wrong or you want to manually specify the device path yourself you can use this option.
 
 <h1>Disclaimer</h1>
-I based my research on Dan Lukes (FreeBSD version) and KenMacD (very simple unlocker) works. 
+I based my research on Dan Lukes (FreeBSD version) and [KenMacD (very simple unlocker)](https://github.com/KenMacD/wdpassport-utils/blob/master/WD_Encryption_API.txt) works. 
 I'm in no way sponsored by or connected with Western Digital.
 Use any of the information contained in this repository at your own risk. I accept no
 responsibility.

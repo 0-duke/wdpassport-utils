@@ -3,6 +3,8 @@ import sys
 import os
 import struct
 import getpass
+import random
+import string
 from hashlib import sha256
 from random import randint
 import argparse
@@ -89,6 +91,15 @@ def read_handy_store(page):
 	data = py_sg.read_as_bin_str(dev, _scsi_pack_cdb(cdb), BLOCK_SIZE)
 	return data
 
+## Call the device and set the selected block of Handy Store.
+def write_handy_store(page, data):
+	cdb = [0xDA,0x00,0x00,0x00,0x00,0x01,0x00,0x00,0x01,0x00]
+	i = 2
+	for c in htonl(page):
+		cdb[i] = c
+		i+=1
+	py_sg.write(dev, _scsi_pack_cdb(cdb), data)
+
 ## Calculate checksum on the returned data
 def hsb_checksum(data):
 	c = 0
@@ -96,7 +107,7 @@ def hsb_checksum(data):
 		c = c + data[i]
 	c = c + data[0]  ## Some WD Utils count data[0] twice, some other not ...
 	r = (c * -1) & 0xFF
-	return hex(r)
+	return r
 
 ## Call the device and get the encryption status.
 ## The function returns three values:
@@ -135,28 +146,42 @@ def get_encryption_status():
 ## 
 ## Iteration - number of iteration (hashing) in password generation
 ## Salt - salt used in password generation
-## Hint - hint of the password if used. TODO.
+## Hint - hint of the password if used.
 def read_handy_store_block1():
-	signature = [0x00, 0x01, 0x44, 0x57]
+	signature = [0x00, 0x01, 0x44, 0x57] # "01WD"
 	sector_data = read_handy_store(1)
 	## Check if retrieved Checksum is correct
-	if hsb_checksum(sector_data) != hex(sector_data[511]):
+	if hsb_checksum(sector_data) != sector_data[511]:
 		print(fail("Wrong HSB1 checksum"))
 		sys.exit(1)
-	## Check if retrieved Signature is correct
+	## Check if retrieved Signature is correct. If not,
+	# there is no hashing parameter data set.
 	for i in range(0,4):
 		if signature[i] != sector_data[i]:
-			print(fail("Wrong HSB1 signature."))
-			sys.exit(1);
+			return None
 
 	iteration = struct.unpack_from("<I",sector_data[8:])
-	salt = sector_data[12:20] + bytes([0x00, 0x00])
-	hint = sector_data[24:226] + bytes([0x00, 0x00])
-	return (iteration[0],salt,hint)
+	salt = sector_data[12:20]
+	hint = sector_data[24:226]
+	return (iteration[0], salt, hint)
+
+def write_handy_store_block1(iteration, salt, hint):
+	sector_data = [0x00, 0x01, 0x44, 0x57] # "01WD" signature
+	sector_data += [0, 0, 0, 0] # reserved
+	sector_data += struct.pack("<I", iteration)
+	sector_data += salt[0:8]
+	sector_data += [0, 0, 0, 0] # reserved
+	sector_data += hint[0:202]
+	sector_data += [0] * 285
+	sector_data += [hsb_checksum(bytes(sector_data))]
+	print(sector_data)
+	assert len(sector_data) == BLOCK_SIZE
+	write_handy_store(1, bytes(sector_data))
 
 ## Perform password hashing with requirements obtained from the device
 def mk_password_block(passwd, iteration, salt):
 	clean_salt = ""
+	salt += bytes([0x00, 0x00])
 	for i in range(int(len(salt)/2)):
 		if salt[2 * i] == 0x00 and salt[2 * i + 1] == 0x00:
 			break
@@ -184,7 +209,11 @@ def unlock():
 	## Get password from user
 	passwd = getpass.getpass("Password: ")
 	
-	iteration,salt,hint = read_handy_store_block1()
+	hash_parameters = read_handy_store_block1()
+	if not hash_parameters:
+		print(fail("Key hash parameters are not valid."))
+		sys.exit(1)
+	iteration, salt, hint = hash_parameters
 	
 	pwd_hashed = mk_password_block(passwd, iteration, salt)
 	pw_block = [0x45,0x00,0x00,0x00,0x00,0x00]
@@ -235,13 +264,29 @@ def change_password():
 		print(fail("Password can't be empty. The device doesn't yet have a password."))
 		sys.exit(1)
 
-	iteration,salt,hint = read_handy_store_block1()
+	# Construct the command.
 	pw_block = [0x45,0x00,0x00,0x00,0x00,0x00]
 
 	# Get the length in bytes of the key for the drive's current cipher
 	# and put that length into the command.
 	pwblen = status["PasswordLength"]
 	pw_block += list(htons(pwblen))
+
+	# For compatibility with the WD encryption tool, use the same
+	# hashing mechanism and parameters to turn the user's password
+	# input into a key. The parameters are stored in unencrypted data.
+	hash_parameters = read_handy_store_block1()
+	if hash_parameters is None:
+		# No password hashing parameters are stored on the device.
+		# Make some up and write them to the device.
+		hash_parameters = (
+			1000,
+			''.join(random.SystemRandom().choice(string.ascii_uppercase + string.digits) for _ in range(8)).encode("ascii"), # eight-byte salt
+			b'wdpassport-utils'.ljust(202)
+		)
+		write_handy_store_block1(*hash_parameters)
+		assert read_handy_store_block1() == hash_parameters
+	iteration, salt, hint = hash_parameters
 
 	if (len(old_passwd) > 0):
 		old_passwd_hashed = mk_password_block(old_passwd, iteration, salt)

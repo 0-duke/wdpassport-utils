@@ -32,9 +32,6 @@ def success(str):
 def question(str):
 	return "\033[94m" + "[+]" + "\033[0m" + " " + str
 
-def title(str):
-	return "\033[93m" + str + "\033[0m"
-
 ## Convert an integer to his human-readable secure status
 def sec_status_to_str(security_status):
 	if security_status == 0x00:
@@ -375,7 +372,6 @@ def enable_mount(device):
 ## Main function, get parameters and manage operations
 def main(argv): 
 	global dev
-	print(title("WD Passport Ultra linux utility v0.1 by duke"))
 	parser = argparse.ArgumentParser()
 	parser.add_argument("-u", "--unlock", required=False, action="store_true", help="Unlock")
 	parser.add_argument("-m", "--mount", required=False, action="store_true", help="Enable mount point for an unlocked device")

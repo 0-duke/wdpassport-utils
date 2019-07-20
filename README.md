@@ -1,4 +1,5 @@
-# WD My Passport Drive Hardware Encrypt Utility for Linux
+
+# WD My Passport Drive Hardware Encryption Utility for Linux
 
 A Linux command-line utility to lock, unlock, and manage the hardware encryption functionality of Western Digital My Passport external drives. Written in Python 3.
 
@@ -17,12 +18,10 @@ This tool was originally written by [0-duke](https://github.com/0-duke/wdpasspor
 
 ## Installing
 
-After downloading this project, you must install some additional Python packages:
+To install, use pip3 and the source code in this repository:
 ```
-pip3 install --user pyudev git+https://github.com/crypto-universe/py_sg
+sudo pip3 install git+https://github.com/JoshData/wdpassport-utils
 ```
-
-We're using a Python 3 port of the py_sg package.
 
 ## Usage
 
@@ -30,9 +29,8 @@ Run script as root or as a user that has permission to manage the device.
 
 When used without any arguments, the status of the drive is shown:
 ```
-$ sudo ./wdpassport-utils.py 
+$ sudo wdpassport-utils.py 
 [sudo] password for user: 
-WD Passport Ultra linux utility v0.1 by duke
 Device: /dev/sdc
 Security status: Unlocked
 Encryption type: Unknown (0x31)

@@ -63,3 +63,6 @@ I based my research on Dan Lukes (FreeBSD version) and KenMacD (very simple unlo
 I'm in no way sponsored by or connected with Western Digital.
 Use any of the information contained in this repository at your own risk. I accept no
 responsibility.
+
+<h1>Note</h1>
+This has not yet supported python3. You might get the error similar to: `Error: /usr/lib/python3.7/site-packages/py_sg.cpython-37m-x86_64-linux-gnu.so: undefined symbol: PyString_FromStringAndSize`.

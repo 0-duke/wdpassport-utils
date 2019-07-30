@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python2
 import sys
 import os
 import struct
@@ -8,32 +8,12 @@ from random import randint
 import argparse
 import subprocess
 
-## py_sg interface for sg3_utils
-class py_sg:
-
-    @staticmethod
-    def read(device, cdb, size):
-        cmd = "sg_raw --readonly --binary -r " + str(size) + " " + device.name.decode("utf-8") + " " + " ".join(list(map(lambda x: "{:02x}".format(x), cdb)));
-        print("CMD: " + str(cmd));
-        p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE);
-        result = p.stdout.read();
-        #print("Result: " + str(result));
-        return result;
-    #end#
-
-    @staticmethod
-    def write(device, cdb, data):
-        data_hex = "".join(list(map(lambda x: "\\x{:02x}".format(x), data)));
-        #printf("Data: " + data_hex);
-        cmd = "printf '" + data_hex + "' | sg_raw -s " + str(len(data)) + " " + device.name.decode("utf-8") + " " + " ".join(list(map(lambda x: "{:02x}".format(x), cdb)));
-        print("CMD: " + cmd);
-        p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE);
-        result = p.stdout.read();
-        #print("Result: " + str(result));
-        return result;
-    #end#
-#end#
-
+try:
+    import py_sg
+except ImportError as e:
+    print("You need to install the \"py_sg\" module.")
+    print("Error: " + str(e))
+    sys.exit(1)
 
 BLOCK_SIZE = 512
 HANDSTORESECURITYBLOCK = 1
@@ -110,7 +90,7 @@ def read_handy_store(page):
     cdb = [0xD8,0x00,0x00,0x00,0x00,0x01,0x00,0x00,0x01,0x00]
     i = 2
     for c in htonl(page):
-        cdb[i] = c
+        cdb[i] = ord(c)
         i+=1
     data = py_sg.read(dev, _scsi_pack_cdb(cdb), BLOCK_SIZE)
     return data
@@ -119,8 +99,8 @@ def read_handy_store(page):
 def hsb_checksum(data):
     c = 0
     for i in range(510):
-        c = c + data[i]
-    c = c + data[0]  ## Some WD Utils count data[0] twice, some other not ...
+        c = c + ord(data[i])
+    c = c + ord(data[0])  ## Some WD Utils count data[0] twice, some other not ...
     r = (c * -1) & 0xFF
     return hex(r)
 
@@ -146,11 +126,11 @@ def hsb_checksum(data):
 def get_encryption_status():
     cdb = [0xC0, 0x45, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x30, 0x00]
     data = py_sg.read(dev, _scsi_pack_cdb(cdb), BLOCK_SIZE)
-    if data[0] != 0x45:
-        print(fail("Wrong encryption status signature %s" % hex(data[0])))
+    if ord(data[0]) != 0x45:
+        print(fail("Wrong encryption status signature %s" % hex(ord(data[0]))))
         sys.exit(1)
     ##  SecurityStatus, CurrentChiperID, KeyResetEnabler
-    return (data[3], data[4], data[8:12])
+    return (ord(data[3]), ord(data[4]), data[8:12])
 
 ## Call the device and get the first block of Handy Store.
 ## The function returns three values:
@@ -162,30 +142,30 @@ def read_handy_store_block1():
     signature = [0x00, 0x01, 0x44, 0x57]
     sector_data = read_handy_store(1)
     ## Check if retrieved Checksum is correct
-    if hsb_checksum(sector_data) != hex(sector_data[511]):
+    if hsb_checksum(sector_data) != hex(ord(sector_data[511])):
         print(fail("Wrong HSB1 checksum"))
         sys.exit(1)
     ## Check if retrieved Signature is correct
     for i in range(0,4):
-        if signature[i] != sector_data[i]:
+        if signature[i] != ord(sector_data[i]):
             print(fail("Wrong HSB1 signature."))
             sys.exit(1);
 
     iteration = struct.unpack_from("<I",sector_data[8:])
-    salt = sector_data[12:20] + b'\x00\x00';
-    hint = sector_data[24:226] + b'\x00\x00';
+    salt = sector_data[12:20] + chr(0x00) + chr(0x00)
+    hint = sector_data[24:226] + chr(0x00) + chr(0x00)
     return (iteration[0],salt,hint)
 
 ## Perform password hashing with requirements obtained from the device
 def mk_password_block(passwd, iteration, salt):
-    clean_salt = b"";
-    for i in range(int(len(salt)/2)):
-        if salt[2 * i] == 0x00 and salt[2 * i + 1] == 0x00:
+    clean_salt = ""
+    for i in range(len(salt)/2):
+        if ord(salt[2 * i]) == 0x00 and ord(salt[2 * i + 1]) == 0x00:
             break
-        clean_salt = clean_salt + bytes([salt[2 * i]]);
+        clean_salt = clean_salt + salt[2 * i]
 
-    password = clean_salt + passwd.encode();
-    password = password.decode().encode("utf-16")[2:]
+    password = clean_salt + passwd
+    password = password.encode("utf-16")[2:]
 
     for i in range(iteration):
         password = sha256(password).digest()
@@ -212,20 +192,19 @@ def unlock():
     else:
         print(fail("Unsupported cipher %s" % cipher_id))
         sys.exit(1)
-    #end#
-
-    iteration,salt,hint = read_handy_store_block1()
-    print("Salt: " + str(salt, "utf8"));
-    print("Hint: " + str(hint, "utf8"));
-
+    
     ## Get password from user
     print(question("Insert password to Unlock the device"))
     passwd = getpass.getpass()
     
+    iteration,salt,hint = read_handy_store_block1()
+    print("salt: " + str(salt))
+    print("Hint: " + str(hint))
+    
     pwd_hashed = mk_password_block(passwd, iteration, salt)
     pw_block = [0x45,0x00,0x00,0x00,0x00,0x00]
     for c in htons(pwblen):
-        pw_block.append(c)
+        pw_block.append(ord(c))
 
     pwblen = pwblen + 8
     cdb[8] = pwblen
@@ -236,7 +215,22 @@ def unlock():
         _1 = _scsi_pack_cdb(cdb);
         _2 = _scsi_pack_cdb(pw_block) + pwd_hashed;
 
-        py_sg.write(_0, _1, _2)
+        int2hex = lambda x: "{:02x}".format(x);
+
+        print("dev:")
+        print(_0)
+        print("cdb:")
+        print(map(int2hex, cdb))
+        print("pw_block:")
+        print(map(int2hex, pw_block))
+        print("_scsi_pack_cdb(pw_block):")
+        print(map(int2hex, map(ord, _scsi_pack_cdb(pw_block))))
+
+        print("_scsi_pack_cdb(cdb)")
+        print(map(int2hex, map(ord, _1)))
+        print("_scsi_pack_cdb(pw_block) + pwd_hashed")
+        print(map(int2hex, map(ord, _2)))
+        #py_sg.write(_0, _1, _2)
         print(success("Device unlocked."))
     except Exception as e:
         ## Wrong password or something bad is happened.
@@ -283,7 +277,7 @@ def change_password():
     iteration,salt,hint = read_handy_store_block1()
     pw_block = [0x45,0x00,0x00,0x00,0x00,0x00]
     for c in htons(pwblen):
-        pw_block.append(c)
+        pw_block.append(ord(c))
 
     if (len(old_passwd) > 0):
         old_passwd_hashed = mk_password_block(old_passwd, iteration, salt)
@@ -343,14 +337,14 @@ def secure_erase(cipher_id = 0):
     cdb[8] = pwblen + 8
     ## Fill pw_block with random data
     for rand_byte in os.urandom(pwblen):
-        pw_block.append(rand_byte)
+        pw_block.append(ord(rand_byte))
 
     ## key_reset needs to be retrieved immidiatly before the reset request
     #status, current_cipher_id, key_reset = get_encryption_status()
     key_reset = get_encryption_status()[2]
     i = 2
     for c in key_reset:
-        cdb[i] = c
+        cdb[i] = ord(c)
         i += 1
 
     try:

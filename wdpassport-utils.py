@@ -19,6 +19,7 @@ except ImportError as e:
 BLOCK_SIZE = 512
 HANDSTORESECURITYBLOCK = 1
 dev = None
+device_name = None
 
 ## Print fail message with red leading characters
 def fail(str):
@@ -129,7 +130,7 @@ def get_encryption_status():
 	cdb = [0xC0, 0x45, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x30, 0x00]
 	data = py_sg.read_as_bin_str(dev, _scsi_pack_cdb(cdb), BLOCK_SIZE)
 	if data[0] != 0x45:
-		print(fail("Wrong encryption status signature %s" % hex(data[0])))
+		print(fail("Wrong encryption status signature: %s." % hex(data[0])))
 		sys.exit(1)
 	return {
 		"Locked": data[3],
@@ -149,7 +150,7 @@ def read_handy_store_block1():
 	sector_data = read_handy_store(1)
 	## Check if retrieved Checksum is correct
 	if hsb_checksum(sector_data) != sector_data[511]:
-		print(fail("Wrong HSB1 checksum"))
+		print(fail("Wrong HSB1 checksum."))
 		sys.exit(1)
 	## Check if retrieved Signature is correct. If not,
 	# there is no hashing parameter data set.
@@ -194,6 +195,8 @@ def mk_password_block(passwd, iteration, salt):
 
 ## Unlock the device
 def unlock():
+	global device_name
+
 	## Device should be in the correct state 
 	status = get_encryption_status()
 	if (status["Locked"] in (0x00, 0x02)):
@@ -204,7 +207,7 @@ def unlock():
 		sys.exit(1)
 	
 	## Get password from user
-	passwd = getpass.getpass("Password: ")
+	passwd = getpass.getpass("[wdpassport] password for {}: ".format(device_name))
 	
 	hash_parameters = read_handy_store_block1()
 	if not hash_parameters:
@@ -241,7 +244,7 @@ def change_password():
 	# Check drive's current status.
 	status = get_encryption_status()
 	if (status["Locked"] not in (0x00, 0x02)):
-		print(fail("Device has to be unlocked or without encryption to perform this operation"))
+		print(fail("Device has to be unlocked or without encryption to perform this operation."))
 		sys.exit(1)
 
 	# Get and confirm the current and new password.
@@ -309,7 +312,7 @@ def change_password():
 		print(success("Password changed."))
 	except:
 		## Wrong password or something bad is happened.
-		print(fail("Error changing password"))
+		print(fail("Error changing password."))
 		pass
 
 ## Change the internal key used for encryption, every data on the device would be permanently unaccessible.
@@ -345,7 +348,7 @@ def secure_erase():
 		print(success("Device erased. You need to create a new partition on the device (Hint: fdisk and mkfs)"))
 	except:
 		## Something bad is happened.
-		print(fail("Something wrong."))
+		print(fail("Something went wrong."))
 		pass
 
 ## Enable mount operations 
@@ -372,6 +375,8 @@ def enable_mount(device):
 ## Main function, get parameters and manage operations
 def main(argv): 
 	global dev
+	global device_name
+
 	parser = argparse.ArgumentParser()
 	parser.add_argument("-u", "--unlock", required=False, action="store_true", help="Unlock")
 	parser.add_argument("-m", "--mount", required=False, action="store_true", help="Enable mount point for an unlocked device")
@@ -409,21 +414,24 @@ def main(argv):
 		sys.exit(1)
 
 	device = passport_devices[0]
-	print("Device: " + device.device_node)
+	device_name = device.device_node
 
 	## Open the device.
 	try:
-		dev = open(device.device_node,"r+b")
+		dev = open(device.device_node, "r+b")
 	except PermissionError:
-		print(fail("Could not open device. Try running as root with 'sudo ...'."))
+		print(fail("Could not open {}. Try running as root as 'sudo {}'.".format(
+			device_name,
+			sys.argv[0])))
 		sys.exit(1)
 	except:
-		print(fail("Something wrong opening device \"%s\"" % (DEVICE)))
+		print(fail("Something wrong opening {}".format(device_name)))
 		sys.exit(1)
 
 	## Report device state if no specific command is given.
 	if not args.unlock and not args.change_passwd and not args.erase and not args.mount:
 		status = get_encryption_status()
+		print("Device: %s" % device_name)
 		print("Security status: %s" % sec_status_to_str(status["Locked"]))
 		print("Encryption type: %s" % cipher_id_to_str(status["Cipher"]))
 
@@ -431,9 +439,12 @@ def main(argv):
 	if args.unlock:
 		unlock()
 	if args.change_passwd:
+		print("Changing password for {}...".format(device_name))
 		change_password()
 	if args.erase:
-		print(question("Any data on the device will be lost. Are you sure you want to continue? [y/N]"))
+		print(question("All data on {} will be lost. Are you sure you want to continue? [y/N]".format(
+			device_name
+		)))
 		r = sys.stdin.read(1)
 		if r.lower() == 'y':
 			secure_erase()

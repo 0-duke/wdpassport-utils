@@ -18,7 +18,15 @@ This tool was originally written by [0-duke](https://github.com/0-duke/wdpasspor
 
 ## Installing
 
-To install, use pip3 and the source code in this repository:
+You'll need the Python 3 development headers to install this tool. On Ubuntu run:
+
+```
+sudo apt install python3-dev
+```
+
+On other Linux distributions you may need a different command.
+
+Then use pip3 to install the source code in this repository:
 ```
 sudo pip3 install git+https://github.com/JoshData/wdpassport-utils
 ```

@@ -28,7 +28,7 @@ On other Linux distributions you may need a different command.
 
 Then use pip3 to install the source code in this repository:
 ```
-sudo pip3 install git+https://github.com/JoshData/wdpassport-utils
+sudo pip3 install git+https://github.com/0-duke/wdpassport-utils
 ```
 
 ## Usage

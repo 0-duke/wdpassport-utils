@@ -1,65 +1,81 @@
-# wdpassport-utils
-WD Passport Ultra Complete Utilities for Linux.
 
-<h1> Intro </h1>
+# WD My Passport Drive Hardware Encryption Utility for Linux
 
-This script let you unlock, change password and erase Western Digital Passport devices on Linux platform. 
+A Linux command-line utility to lock, unlock, and manage the hardware encryption functionality of Western Digital My Passport external drives. Written in Python 3.
 
-<h1> Install </h1>
+WD My Passport drives support hardware encryption. New drives arrive in a passwordless state --- they can be used without locking or unlocking. After a password is set, drives become locked when they are unplugged and must be unlocked when they are plugged in to mount the volume and see its content.
 
-In order to run this script you need to install "lsscsi" command and "py_sg" library. 
+This utlity can:
 
-For example on Ubuntu you can install the missing dependancies with
+* Show drive status.
+* Set and change the drive's password.
+* Unlock an encrypted drive, given the password.
+* Reset the drive in case of a lost password.
+
+Passwords given on the command line are converted into binary password data in a mechanism intended to be compatible with WD's unlock software that is used in Microsoft Windows.
+
+This tool was originally written by [0-duke](https://github.com/0-duke/wdpassport-utils) in 2015 based on reverse engineering research by [DanLukes](https://github.com/DanLukes) and an implementation by DanLukes and [KenMacD](https://github.com/KenMacD/wdpassport-utils). [crypto-universe](https://github.com/crypto-universe/wdpassport-utils) converted this project and the underlying SCSI interface library py_sg to Python 3. [JoshData](https://github.com/JoshData/wdpassport-utils) updated the library to work with the latest WD My Passport device.
+
+## Installing
+
+You'll need the Python 3 development headers to install this tool. On Ubuntu run:
+
 ```
-sudo apt-get install python-pip python-dev lsscsi
-sudo pip install py_sg
+sudo apt install python3-dev
 ```
 
-<h1> Usage </h1>
+On other Linux distributions you may need a different command.
 
-Run script as root. 
+Then use pip3 to install the source code in this repository:
+```
+sudo pip3 install git+https://github.com/JoshData/wdpassport-utils
+```
+
+## Usage
+
+Run script as root or as a user that has permission to manage the device.
+
+When used without any arguments, the status of the drive is shown:
+```
+$ sudo wdpassport-utils.py 
+[sudo] password for user: 
+Device: /dev/sdc
+Security status: Unlocked
+Encryption type: Unknown (0x31)
+```
 
 There are few options:
+
+```
+-u, --unlock          Unlock
+```
+Unlock a locked drive. You will be asked to enter the unlock password. If everything is fine device will be unlocked. (To lock a drive, unplug it.)
+
+```
+-m, --mount           Enable mount point for an unlocked device
+```
+After unlock, your operating system may still think that your device is a strange thing attached to its USB port and doesn't know how to manage it. This option forces the operating system to rescan the device and handle it as a normal external USB harddrive. This flag can be combined with `-u`.
+
+```
+-c, --change_passwd   Set, change, or remove password protection
+```
+Set a password on a new drive, change the password, or remove the password (so that it does not need to be unlocked to use). To remove a password, leave the new password empty.
+
+```
+-e, --erase           Erase/reset device
+```
+Erase (reset) the drive. This will remove the internal key associated to you password and all your data will be unaccessible. You will also lose your partition table and you will need to create a new one (you can use fdisk and mkfs or other utilities to prepare and format the drive).
+
+```
+-d DEVICE, --device DEVICE  Device path (ex. /dev/sdb). Optional.
+```
+This tool will try to auto-detect the device path of your WD My Passport device. If you have more than one device, or if auto-detection fails, you can manually specify the device path, e.g. as `/dev/sdb`.
+
 ```
 -h, --help            show this help message and exit
 ```
 Lists all possible arguments.
 
-```
--s, --status          Check device status and encryption type
-```
-Get device encryption status and cipher suites used.
-```
--u, --unlock          Unlock
-```
-You will be asked to enter the unlock password. If everything is fine device will be unlocked.
-
-```
--m, --mount           Enable mount point for an unlocked device
-```
-After unlock, your operating system still thinks that your device is a strange thing attached to his usb port and he don't know how to manage. You need this option to force the O.S. to rescan the device and handle it as a normal external usb harddrive.
-
-```
--c, --change_passwd   Change (or disable) password
-```
-This option let you to encrypt your device, remove password protection and change your current password.
-If device is "without lock" and you want it to be password protect leave the "OLD password" field empty and choose insert the new password.
-If the device is password protected and you want to be as a normal unencrypted device, inser the old password and leave the "NEW password" field empty.
-If you only want to change password do it as usual.
-
-```
--e, --erase           Secure erase device
-```
-"Erase" the device. This will remove the internal key associated to you password and all your data will be unaccessible. You will also lose your partition table and you will need to create a new one (you can use fdisk and mkfs).
-
-```
--d DEVICE, --device DEVICE  Force device path (ex. /dev/sdb). Usually you don't need this option.
-```
-The script will try to auto detect the current device path of your WD Passport device.
-If something is wrong or you want to manually specify the device path yourself you can use this option.
-
 <h1>Disclaimer</h1>
-I based my research on Dan Lukes (FreeBSD version) and KenMacD (very simple unlocker) works. 
-I'm in no way sponsored by or connected with Western Digital.
-Use any of the information contained in this repository at your own risk. I accept no
-responsibility.
+
+Use the tool and any of the information contained in this repository at your own risk. The tool was developed without any official documenation from Western Digital on how to manage the drive using its raw SCSI interface. We accept no responsibility.

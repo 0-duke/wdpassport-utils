@@ -1,22 +1,25 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 import sys
 import os
 import struct
 import getpass
+import random
+import string
 from hashlib import sha256
 from random import randint
 import argparse
-import subprocess
+import pyudev
 
 try:
-    import py_sg
-except ImportError, e:
-    print "You need to install the \"py_sg\" module."
-    sys.exit(1)
+	import py_sg
+except ImportError as e:
+	print("You need to install the \"py_sg\" module. Try 'pip3 install --user git+https://github.com/crypto-universe/py_sg'.")
+	sys.exit(1)
 
 BLOCK_SIZE = 512
 HANDSTORESECURITYBLOCK = 1
 dev = None
+device_name = None
 
 ## Print fail message with red leading characters
 def fail(str):
@@ -30,47 +33,39 @@ def success(str):
 def question(str):
 	return "\033[94m" + "[+]" + "\033[0m" + " " + str
 
-def title(str):
-	return "\033[93m" + str + "\033[0m"
-
-### Return if the current user is root
-def is_root_user():
-	if os.geteuid() != 0: return False
-	else: return True
-
 ## Convert an integer to his human-readable secure status
 def sec_status_to_str(security_status):
 	if security_status == 0x00:
 		return "No lock"
 	elif security_status == 0x01:
-		return "Locked";
+		return "Locked"
 	elif security_status == 0x02:
-		return "Unlocked";
+		return "Unlocked"
 	elif security_status == 0x06:
-		return "Locked, unlock blocked";
+		return "Locked, unlock blocked"
 	elif security_status == 0x07:
-		return "No keys";
+		return "No keys"
 	else:
-		return "unknown";
+		return "unknown"
 
 ## Convert an integer to his human-readable cipher algorithm
 def cipher_id_to_str(cipher_id):
 	if cipher_id == 0x10:
-		return "AES_128_ECB";
+		return "AES_128_ECB"
 	elif cipher_id == 0x12:
-		return "AES_128_CBC";
+		return "AES_128_CBC"
 	elif cipher_id == 0x18:
-		return "AES_128_XTS";
+		return "AES_128_XTS"
 	elif cipher_id == 0x20:
-		return "AES_256_ECB";
+		return "AES_256_ECB"
 	elif cipher_id == 0x22:
-		return "AES_256_CBC";
+		return "AES_256_CBC"
 	elif cipher_id == 0x28:
-		return "AES_256_XTS";
+		return "AES_256_XTS"
 	elif cipher_id == 0x30:
-		return "Full Disk Encryption";
+		return "Full Disk Encryption"
 	else:
-		return "unknown";
+		return "Unknown ({})".format(hex(cipher_id))
 
 ## Transform "cdb" in char[]
 def _scsi_pack_cdb(cdb):
@@ -89,19 +84,28 @@ def read_handy_store(page):
 	cdb = [0xD8,0x00,0x00,0x00,0x00,0x01,0x00,0x00,0x01,0x00]
 	i = 2
 	for c in htonl(page):
-		cdb[i] = ord(c)
+		cdb[i] = c
 		i+=1
-	data = py_sg.read(dev, _scsi_pack_cdb(cdb), BLOCK_SIZE)
+	data = py_sg.read_as_bin_str(dev, _scsi_pack_cdb(cdb), BLOCK_SIZE)
 	return data
+
+## Call the device and set the selected block of Handy Store.
+def write_handy_store(page, data):
+	cdb = [0xDA,0x00,0x00,0x00,0x00,0x01,0x00,0x00,0x01,0x00]
+	i = 2
+	for c in htonl(page):
+		cdb[i] = c
+		i+=1
+	py_sg.write(dev, _scsi_pack_cdb(cdb), data)
 
 ## Calculate checksum on the returned data
 def hsb_checksum(data):
 	c = 0
 	for i in range(510):
-		c = c + ord(data[i])
-	c = c + ord(data[0])  ## Some WD Utils count data[0] twice, some other not ...
+		c = c + data[i]
+	c = c + data[0]  ## Some WD Utils count data[0] twice, some other not ...
 	r = (c * -1) & 0xFF
-	return hex(r)
+	return r
 
 ## Call the device and get the encryption status.
 ## The function returns three values:
@@ -112,7 +116,7 @@ def hsb_checksum(data):
 ##		0x02 => Unlocked
 ##		0x06 => Locked, unlock blocked
 ##		0x07 => No keys
-## CurrentChiperID
+## CurrentCipherID
 ##		0x10 =>	AES_128_ECB
 ##		0x12 =>	AES_128_CBC
 ##		0x18 =>	AES_128_XTS
@@ -124,44 +128,62 @@ def hsb_checksum(data):
 ##
 def get_encryption_status():
 	cdb = [0xC0, 0x45, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x30, 0x00]
-	data = py_sg.read(dev, _scsi_pack_cdb(cdb), BLOCK_SIZE)
-	if ord(data[0]) != 0x45:
-		print fail("Wrong encryption status signature %s" % hex(ord(data[0])))
+	data = py_sg.read_as_bin_str(dev, _scsi_pack_cdb(cdb), BLOCK_SIZE)
+	if data[0] != 0x45:
+		print(fail("Wrong encryption status signature: %s." % hex(data[0])))
 		sys.exit(1)
-	##  SecurityStatus, CurrentChiperID, KeyResetEnabler
-	return (ord(data[3]), ord(data[4]), data[8:12])
+	return {
+		"Locked": data[3],
+		"Cipher": data[4],
+		"PasswordLength": struct.unpack('!H', data[6:8])[0],
+		"KeyResetEnabler": data[8:12],
+	}
 
 ## Call the device and get the first block of Handy Store.
 ## The function returns three values:
 ## 
 ## Iteration - number of iteration (hashing) in password generation
 ## Salt - salt used in password generation
-## Hint - hint of the password if used. TODO.
+## Hint - hint of the password if used.
 def read_handy_store_block1():
-	signature = [0x00, 0x01, 0x44, 0x57]
+	signature = [0x00, 0x01, 0x44, 0x57] # "01WD"
 	sector_data = read_handy_store(1)
 	## Check if retrieved Checksum is correct
-	if hsb_checksum(sector_data) != hex(ord(sector_data[511])):
-		print fail("Wrong HSB1 checksum")
+	if hsb_checksum(sector_data) != sector_data[511]:
+		print(fail("Wrong HSB1 checksum."))
 		sys.exit(1)
-	## Check if retrieved Signature is correct
+	## Check if retrieved Signature is correct. If not,
+	# there is no hashing parameter data set.
 	for i in range(0,4):
-		if signature[i] != ord(sector_data[i]):
-			print fail("Wrong HSB1 signature.")
-			sys.exit(1);
+		if signature[i] != sector_data[i]:
+			return None
 
 	iteration = struct.unpack_from("<I",sector_data[8:])
-	salt = sector_data[12:20] + chr(0x00) + chr(0x00)
-	hint = sector_data[24:226] + chr(0x00) + chr(0x00)
-	return (iteration[0],salt,hint)
+	salt = sector_data[12:20]
+	hint = sector_data[24:226]
+	return (iteration[0], salt, hint)
+
+def write_handy_store_block1(iteration, salt, hint):
+	sector_data = [0x00, 0x01, 0x44, 0x57] # "01WD" signature
+	sector_data += [0, 0, 0, 0] # reserved
+	sector_data += struct.pack("<I", iteration)
+	sector_data += salt[0:8]
+	sector_data += [0, 0, 0, 0] # reserved
+	sector_data += hint[0:202]
+	sector_data += [0] * 285
+	sector_data += [hsb_checksum(bytes(sector_data))]
+	print(sector_data)
+	assert len(sector_data) == BLOCK_SIZE
+	write_handy_store(1, bytes(sector_data))
 
 ## Perform password hashing with requirements obtained from the device
 def mk_password_block(passwd, iteration, salt):
 	clean_salt = ""
-	for i in range(len(salt)/2):
-		if ord(salt[2 * i]) == 0x00 and ord(salt[2 * i + 1]) == 0x00:
+	salt += bytes([0x00, 0x00])
+	for i in range(int(len(salt)/2)):
+		if salt[2 * i] == 0x00 and salt[2 * i + 1] == 0x00:
 			break
-		clean_salt = clean_salt + salt[2 * i]
+		clean_salt = clean_salt + chr(salt[2 * i])
 
 	password = clean_salt + passwd
 	password = password.encode("utf-16")[2:]
@@ -173,46 +195,43 @@ def mk_password_block(passwd, iteration, salt):
 
 ## Unlock the device
 def unlock():
-	cdb = [0xC1,0xE1,0x00,0x00,0x00,0x00,0x00,0x00,0x28,0x00]
-	sec_status, cipher_id, key_reset = get_encryption_status()
+	global device_name
+
 	## Device should be in the correct state 
-	if (sec_status == 0x00 or sec_status == 0x02):
-		print fail("Your device is already unlocked!")
+	status = get_encryption_status()
+	if (status["Locked"] in (0x00, 0x02)):
+		print(fail("Your device is already unlocked!"))
 		return
-	elif (sec_status != 0x01):
-		print fail("Wrong device status!")
-		sys.exit(1)
-	if cipher_id == 0x10 or cipher_id == 0x12 or cipher_id == 0x18:
-		pwblen = 16;
-	elif cipher_id == 0x20 or cipher_id == 0x22 or cipher_id == 0x28:
-		pwblen = 32;
-	elif cipher_id == 0x30:
-		pwblen = 32;
-	else:
-		print fail("Unsupported cipher %s" % cipher_id)
+	elif (status["Locked"] != 0x01):
+		print(fail("Wrong device status!"))
 		sys.exit(1)
 	
 	## Get password from user
-	print question("Insert password to Unlock the device")
-	passwd = getpass.getpass()
+	passwd = getpass.getpass("[wdpassport] password for {}: ".format(device_name))
 	
-	iteration,salt,hint = read_handy_store_block1()
+	hash_parameters = read_handy_store_block1()
+	if not hash_parameters:
+		print(fail("Key hash parameters are not valid."))
+		sys.exit(1)
+	iteration, salt, hint = hash_parameters
 	
 	pwd_hashed = mk_password_block(passwd, iteration, salt)
 	pw_block = [0x45,0x00,0x00,0x00,0x00,0x00]
+	pwblen = status["PasswordLength"]
 	for c in htons(pwblen):
-		pw_block.append(ord(c))
+		pw_block.append(c)
 
 	pwblen = pwblen + 8
+	cdb = [0xC1,0xE1,0x00,0x00,0x00,0x00,0x00,0x00,0x28,0x00]
 	cdb[8] = pwblen
 
 	try:
 		## If there aren't exceptions the unlock operation is OK.
 		py_sg.write(dev, _scsi_pack_cdb(cdb), _scsi_pack_cdb(pw_block) + pwd_hashed)
-		print success("Device unlocked.")
+		print(success("Device unlocked."))
 	except:
 		## Wrong password or something bad is happened.
-		print fail("Wrong password.")
+		print(fail("Wrong password."))
 		pass
 
 ## Change device password
@@ -222,156 +241,143 @@ def unlock():
 ## DEVICE HAS TO BE UNLOCKED TO PERFORM THIS OPERATION
 ##
 def change_password():
-	cdb = [0xC1, 0xE2, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x48, 0x00]
-	sec_status, cipher_id, key_reset = get_encryption_status()
-	if (sec_status != 0x02 and sec_status != 0x00):
-		print fail("Device has to be unlocked or without encryption to perform this operation")
-		sys.exit(1)
-	if cipher_id == 0x10 or cipher_id == 0x12 or cipher_id == 0x18:
-		pwblen = 16;
-	elif cipher_id == 0x20 or cipher_id == 0x22 or cipher_id == 0x28:
-		pwblen = 32;
-	elif cipher_id == 0x30:
-		pwblen = 32;
-	else:
-		print fail("Unsupported cipher %s" % cipher_id)
+	# Check drive's current status.
+	status = get_encryption_status()
+	if (status["Locked"] not in (0x00, 0x02)):
+		print(fail("Device has to be unlocked or without encryption to perform this operation."))
 		sys.exit(1)
 
-	print question("Insert the OLD password")
-	old_passwd = getpass.getpass()
-	print question("Insert the NEW password")
-	new_passwd = getpass.getpass()
-	print question("Confirm the NEW password")
-	new_passwd2 = getpass.getpass()
+	# Get and confirm the current and new password.
+	if status["Locked"] == 0x00:
+		# The device doesn't have a password.
+		old_passwd = ""
+	else:
+		old_passwd = getpass.getpass("Current password: ")
+	new_passwd = getpass.getpass("New password: ")
+	new_passwd2 = getpass.getpass("New password (again): ")
 	if new_passwd != new_passwd2:
-		print fail("Password confirmation doesn't match the given password")
+		print(fail("Password didn't match."))
 		sys.exit(1)
 
 	## Both passwords shouldn't be empty
 	if (len(old_passwd) <= 0 and len(new_passwd) <= 0):
-		print fail("Both passwords shouldn't be empty")
+		print(fail("Password can't be empty. The device doesn't yet have a password."))
 		sys.exit(1)
 
-	iteration,salt,hint = read_handy_store_block1()
+	# Construct the command.
 	pw_block = [0x45,0x00,0x00,0x00,0x00,0x00]
-	for c in htons(pwblen):
-		pw_block.append(ord(c))
+
+	# Get the length in bytes of the key for the drive's current cipher
+	# and put that length into the command.
+	pwblen = status["PasswordLength"]
+	pw_block += list(htons(pwblen))
+
+	# For compatibility with the WD encryption tool, use the same
+	# hashing mechanism and parameters to turn the user's password
+	# input into a key. The parameters are stored in unencrypted data.
+	hash_parameters = read_handy_store_block1()
+	if hash_parameters is None:
+		# No password hashing parameters are stored on the device.
+		# Make some up and write them to the device.
+		hash_parameters = (
+			1000,
+			''.join(random.SystemRandom().choice(string.ascii_uppercase + string.digits) for _ in range(8)).encode("ascii"), # eight-byte salt
+			b'wdpassport-utils'.ljust(202)
+		)
+		write_handy_store_block1(*hash_parameters)
+		assert read_handy_store_block1() == hash_parameters
+	iteration, salt, hint = hash_parameters
 
 	if (len(old_passwd) > 0):
 		old_passwd_hashed = mk_password_block(old_passwd, iteration, salt)
 		pw_block[3] = pw_block[3] | 0x10
 	else:
-		old_passwd_hashed = ""
-		for i in range(32):
-			old_passwd_hashed = old_passwd_hashed + chr(0x00)
+		old_passwd_hashed = bytes([0x00]*32)
 
 	if (len(new_passwd) > 0):
 		new_passwd_hashed = mk_password_block(new_passwd, iteration, salt)
 		pw_block[3] = pw_block[3] | 0x01
 	else:
-		new_passwd_hashed = ""
-		for i in range(32):
-			new_passwd_hashed = new_passwd_hashed + chr(0x00)
+		new_passwd_hashed = bytes([0x00]*32)
 
 	if pw_block[3] & 0x11 == 0x11:
 		pw_block[3] = pw_block[3] & 0xEE
 
+	cdb = [0xC1, 0xE2, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x48, 0x00]
 	pwblen = 8 + 2 * pwblen
 	cdb[8] = pwblen
 	try:
 		## If exception isn't raised the unlock operation gone ok.
 		py_sg.write(dev, _scsi_pack_cdb(cdb), _scsi_pack_cdb(pw_block) + old_passwd_hashed + new_passwd_hashed)
-		print success("Password changed.")
+		print(success("Password changed."))
 	except:
 		## Wrong password or something bad is happened.
-		print fail("Error changing password")
+		print(fail("Error changing password."))
 		pass
 
 ## Change the internal key used for encryption, every data on the device would be permanently unaccessible.
 ## Device forgets even the partition table so you have to make a new one.
-def secure_erase(cipher_id = 0):
+def secure_erase():
 	cdb = [0xC1, 0xE3, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08, 0x00]
-	status, current_cipher_id, key_reset = get_encryption_status()
+	status = get_encryption_status()
 
-	if cipher_id == 0:
-		cipher_id = current_cipher_id
+	cipher_id = status["Cipher"]
 
-	pw_block = [0x45,0x00,0x00,0x00,0x30,0x00,0x00,0x00]
+	pw_block = [0x45,0x00,0x00,0x00,cipher_id,0x00,0x00,0x00]
 
-	if cipher_id == 0x10 or cipher_id == 0x12 or cipher_id == 0x18:
-		pwblen = 16;
-		pw_block[3] = 0x01
-	elif cipher_id == 0x20 or cipher_id == 0x22 or cipher_id == 0x28:
-		pwblen = 32;
-		pw_block[3] = 0x01
-	elif cipher_id == 0x30:
-		pwblen = 32;
-	#	pw_block[3] = 0x00
-	else:
-		print fail("Unsupported cipher %s" % cipher_id)
-		sys.exit(1)
+	# For old ciphers, this code used to set the "combine" flag.
+	# pw_block[3] = 0x01
 
 	## Set the actual lenght of pw_block (8 bytes + pwblen pseudorandom data)
+	pwblen = status["PasswordLength"]
 	cdb[8] = pwblen + 8
 	## Fill pw_block with random data
 	for rand_byte in os.urandom(pwblen):
-		pw_block.append(ord(rand_byte))
+		pw_block.append(rand_byte)
 
 	## key_reset needs to be retrieved immidiatly before the reset request
 	#status, current_cipher_id, key_reset = get_encryption_status()
-	key_reset = get_encryption_status()[2]
+	key_reset = status["KeyResetEnabler"]
 	i = 2
 	for c in key_reset:
-		cdb[i] = ord(c)
+		cdb[i] = c
 		i += 1
 
 	try:
 		py_sg.write(dev, _scsi_pack_cdb(cdb), _scsi_pack_cdb(pw_block))
-		print success("Device erased. You need to create a new partition on the device (Hint: fdisk and mkfs)")
+		print(success("Device erased. You need to create a new partition on the device (Hint: fdisk and mkfs)"))
 	except:
 		## Something bad is happened.
-		print fail("Something wrong.")
+		print(fail("Something went wrong."))
 		pass
-
-## Get device info through "lsscsi" command
-def get_device_info(device = None):
-	if device == None: grep_string = "Passport"
-	else: grep_string = device
-
-	## Ex. from the following string 
-	## "[23:0:0:0]   disk    WD       My Passport 0820 1012  /dev/sdb"
-	## We extract 
-	p = subprocess.Popen("lsscsi | grep " + grep_string + " | grep -oP \"\/([a-zA-Z]+)\/([a-zA-Z0-9]+)\"",shell=True,stdout=subprocess.PIPE)
-	## /dev/sdb
-	complete_path = p.stdout.read().rstrip()
-	p = subprocess.Popen("lsscsi | grep " + grep_string + " | grep -oP \"\/([a-zA-Z]+)\/([a-zA-Z0-9]+)\" | cut -d '/' -f 3",shell=True,stdout=subprocess.PIPE)
-	## sdb
-	relative_path = p.stdout.read().rstrip()
-	p = subprocess.Popen("lsscsi -d|grep " + grep_string + "|cut -d ':' -f 1|cut -d '[' -f 2",shell=True,stdout=subprocess.PIPE)
-	## 23
-	host_number = p.stdout.read().rstrip()
-	return (complete_path, relative_path, host_number)
 
 ## Enable mount operations 
 ## Tells the system to scan the "new" (unlocked) device
 def enable_mount(device):
-	sec_status, cipher_id, key_reset = get_encryption_status()
-        ## Device should be in the correct state 
-        if (sec_status == 0x00 or sec_status == 0x02):
-		rp,hn = get_device_info(device)[1:]
-		p = subprocess.Popen("echo 1 > /sys/block/" + rp + "/device/delete",shell=True)
-		p = subprocess.Popen("echo \"- - -\" > /sys/class/scsi_host/host" + hn + "/scan",shell=True)
-		print success("Now depending on your system you can mount your device or it will be automagically mounted.")
-	else:
-                print fail("Device needs to be unlocked in order to mount it.")
+	status = get_encryption_status()
+	## Device should be in the correct state 
+	if status["Locked"] not in (0x00, 0x02):
+		print(fail("Device needs to be unlocked in order to mount it."))
+		return
+
+	scsi_host = device.find_parent(subsystem="scsi", device_type="scsi_host").sys_name
+
+	# Detach(?) the device.
+	with open("/sys/block/{}/device/delete".format(device.sys_name), "w") as f:
+		f.write("1\n")
+
+	# Scan for devices.
+	with open("/sys/class/scsi_host/{}/scan".format(scsi_host), "w") as f:
+		f.write("- - -\n")
+	print(success("Device re-scanned."))
 
 
 ## Main function, get parameters and manage operations
 def main(argv): 
 	global dev
-	print title("WD Passport Ultra linux utility v0.1 by duke")
+	global device_name
+
 	parser = argparse.ArgumentParser()
-	parser.add_argument("-s", "--status", required=False, action="store_true", help="Check device status and encryption type")
 	parser.add_argument("-u", "--unlock", required=False, action="store_true", help="Unlock")
 	parser.add_argument("-m", "--mount", required=False, action="store_true", help="Enable mount point for an unlocked device")
 	parser.add_argument("-c", "--change_passwd", required=False, action="store_true", help="Change (or disable) password")
@@ -380,49 +386,72 @@ def main(argv):
 
 	args = parser.parse_args()
 	
-	if not is_root_user():
-		print fail("You need to have root privileges to run this script.")
-		sys.exit(1)
-	
 	if len(sys.argv) == 1:
 		args.status = True
 	
-	if args.device:
-		DEVICE = args.device
-	else:
-		## Get occurrences of "Passport" devices
-		p = subprocess.Popen("lsscsi | grep Passport | wc -l",shell=True,stdout=subprocess.PIPE)
-		if int(p.stdout.read().rstrip()) > 1:
-			print fail("Multiple occurences of \"My Passport\" detected. You should specify a device manually (with -d option).")
-			sys.exit(1)
-		DEVICE = get_device_info()[0]
+	## Get occurrences of "Passport" devices. Iterate over each disk block device
+	## and go up to its parents to find a "WD Passport" device.
+	passport_devices = []
+	context = pyudev.Context()
+	for disk_device in context.list_devices(subsystem='block', DEVTYPE='disk'):
+		# If -d is used, filter devices.
+		if args.device and disk_device.device_node != args.device:
+			continue
 
-	try:
-		dev = open(DEVICE,"r+b")
-	except:
-		print fail("Something wrong opening device \"%s\"" % (DEVICE))
+		# Scan parent for device name.
+		device = disk_device
+		while device is not None:
+			if "ID_SERIAL" in device:
+				if device.properties["ID_SERIAL"].startswith("Western_Digital_My_Passport_"):
+					passport_devices.append(disk_device)
+			device = device.parent
+
+	if len(passport_devices) == 0:
+		print(fail("No Western Digital Passport device found."))
+		sys.exit(1)
+	elif len(passport_devices) > 1:
+		print(fail("Multiple Western Digital Passport devices found. Use --device /dev/___ to choose."))
 		sys.exit(1)
 
-	if args.status:
-		status, cipher_id, key_reset = get_encryption_status()
-		print success("Device state")
-		print "\tSecurity status: %s" % sec_status_to_str(status)
-		print "\tEncryption type: %s" % cipher_id_to_str(cipher_id)
+	device = passport_devices[0]
+	device_name = device.device_node
+
+	## Open the device.
+	try:
+		dev = open(device.device_node, "r+b")
+	except PermissionError:
+		print(fail("Could not open {}. Try running as root as 'sudo {}'.".format(
+			device_name,
+			sys.argv[0])))
+		sys.exit(1)
+	except:
+		print(fail("Something wrong opening {}".format(device_name)))
+		sys.exit(1)
+
+	## Report device state if no specific command is given.
+	if not args.unlock and not args.change_passwd and not args.erase and not args.mount:
+		status = get_encryption_status()
+		print("Device: %s" % device_name)
+		print("Security status: %s" % sec_status_to_str(status["Locked"]))
+		print("Encryption type: %s" % cipher_id_to_str(status["Cipher"]))
+
+	## Perform actions.
 	if args.unlock:
 		unlock()
 	if args.change_passwd:
+		print("Changing password for {}...".format(device_name))
 		change_password()
-
 	if args.erase:
-		print question("Any data on the device will be lost. Are you sure you want to continue? [y/N]")
+		print(question("All data on {} will be lost. Are you sure you want to continue? [y/N]".format(
+			device_name
+		)))
 		r = sys.stdin.read(1)
 		if r.lower() == 'y':
-			secure_erase(0)
+			secure_erase()
 		else:
-			print success("Ok. Bye.")
-
+			print(success("Ok, nevermind."))
 	if args.mount:
-		enable_mount(DEVICE)
+		enable_mount(device)
 
 if __name__ == "__main__":
 	main(sys.argv[1:])

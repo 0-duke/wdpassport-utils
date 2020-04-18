@@ -402,7 +402,7 @@ def main(argv):
 		device = disk_device
 		while device is not None:
 			if "ID_SERIAL" in device:
-				if device.properties["ID_SERIAL"].startswith("Western_Digital_My_Passport_"):
+				if device.properties["ID_SERIAL"].startswith("Western_Digital_My_"):
 					passport_devices.append(disk_device)
 			device = device.parent
 

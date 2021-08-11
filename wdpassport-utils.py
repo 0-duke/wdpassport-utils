@@ -394,6 +394,10 @@ def main(argv):
 	passport_devices = []
 	context = pyudev.Context()
 	for disk_device in context.list_devices(subsystem='block', DEVTYPE='disk'):
+		# Skip non hard disks
+		if not disk_device.device_node.startswith('/dev/sd'):
+			continue
+
 		# If -d is used, filter devices.
 		if args.device and disk_device.device_node != args.device:
 			continue

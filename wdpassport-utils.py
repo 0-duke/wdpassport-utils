@@ -194,7 +194,7 @@ def mk_password_block(passwd, iteration, salt):
 	return password
 
 ## Unlock the device
-def unlock():
+def unlock(passwd):
 	global device_name
 
 	## Device should be in the correct state 
@@ -207,7 +207,7 @@ def unlock():
 		sys.exit(1)
 	
 	## Get password from user
-	passwd = getpass.getpass("[wdpassport] password for {}: ".format(device_name))
+	## passwd = getpass.getpass("[wdpassport] password for {}: ".format(device_name))
 	
 	hash_parameters = read_handy_store_block1()
 	if not hash_parameters:
@@ -240,7 +240,7 @@ def unlock():
 ## 
 ## DEVICE HAS TO BE UNLOCKED TO PERFORM THIS OPERATION
 ##
-def change_password():
+def change_password(old_passwd,new_passwd):
 	# Check drive's current status.
 	status = get_encryption_status()
 	if (status["Locked"] not in (0x00, 0x02)):
@@ -251,13 +251,13 @@ def change_password():
 	if status["Locked"] == 0x00:
 		# The device doesn't have a password.
 		old_passwd = ""
-	else:
-		old_passwd = getpass.getpass("Current password: ")
-	new_passwd = getpass.getpass("New password: ")
-	new_passwd2 = getpass.getpass("New password (again): ")
-	if new_passwd != new_passwd2:
-		print(fail("Password didn't match."))
-		sys.exit(1)
+	## else:
+	##	old_passwd = getpass.getpass("Current password: ")
+	## new_passwd = getpass.getpass("New password: ")
+	## new_passwd2 = getpass.getpass("New password (again): ")
+	## if new_passwd != new_passwd2:
+	##	print(fail("Password didn't match."))
+	##	sys.exit(1)
 
 	## Both passwords shouldn't be empty
 	if (len(old_passwd) <= 0 and len(new_passwd) <= 0):
@@ -378,9 +378,9 @@ def main(argv):
 	global device_name
 
 	parser = argparse.ArgumentParser()
-	parser.add_argument("-u", "--unlock", required=False, action="store_true", help="Unlock")
+	parser.add_argument("-u", "--unlock", required=False, help="Unlock")
 	parser.add_argument("-m", "--mount", required=False, action="store_true", help="Enable mount point for an unlocked device")
-	parser.add_argument("-c", "--change_passwd", required=False, action="store_true", help="Change (or disable) password")
+	parser.add_argument("-c", "--change_passwd", nargs=2,required=False, help="Change (or disable) password")
 	parser.add_argument("-e", "--erase", required=False, action="store_true", help="Secure erase device")
 	parser.add_argument("-d", "--device", dest="device", required=False, help="Force device path (ex. /dev/sdb). Usually you don't need this option.")
 
@@ -437,19 +437,20 @@ def main(argv):
 
 	## Perform actions.
 	if args.unlock:
-		unlock()
+		print("password is:",args.unlock)
+		unlock(args.unlock)
 	if args.change_passwd:
 		print("Changing password for {}...".format(device_name))
-		change_password()
+		change_password(args.change_passwd[0],args.change_passwd[1])
 	if args.erase:
-		print(question("All data on {} will be lost. Are you sure you want to continue? [y/N]".format(
-			device_name
-		)))
-		r = sys.stdin.read(1)
-		if r.lower() == 'y':
+		##print(question("All data on {} will be lost. Are you sure you want to continue? [y/N]".format(
+		##	device_name
+		##)))
+		##r = sys.stdin.read(1)
+		##if r.lower() == 'y':
 			secure_erase()
-		else:
-			print(success("Ok, nevermind."))
+		##else:
+		##	print(success("Ok, nevermind."))
 	if args.mount:
 		enable_mount(device)
 

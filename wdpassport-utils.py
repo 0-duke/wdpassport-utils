@@ -265,7 +265,7 @@ def change_password(passwd1,passwd2):
 			sys.exit(1)
 
 	# If one parameters after -c , Set or Clean password
-	if len(passwd2)==0:
+	if len(passwd1)>0 and len(passwd2)==0 :
 		if status["Locked"] == 0x00:
 			print("Set password on wd disk.")
 			old_passwd = ""
@@ -463,7 +463,6 @@ def main(argv):
 	if args.change_passwd is not None:
 		print("Changing password for {}...".format(device_name))
 		if len(args.change_passwd)==0:
-			print(fail("0000"))
 			change_password("","")
 		if len(args.change_passwd)==1:
 			change_password(args.change_passwd[0],"")

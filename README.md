@@ -1,11 +1,28 @@
 
-为了配合wd passport linux tools调用，修改了原来的脚本，将需要交互输入的命令行参数，改为可以在命令行上指定。
-例如原始版本需要执行 wdpassport-utils.py -u 后根据提示输入密码
-修改版本可以直接通过 wdpassport-utils.py -u passwd 来完成硬盘解锁
-原始版本需要执行 wdpassport-utils.py -c 后，根据提示修改密码
-修改版本可以直接通过 wdpassport-utils.py -c oldpasswd newpasswd 直接修改密码
 
+## 修改说明
 
+为了配合wd passport linux tools GUI调用，修改了原来的脚本，将需要交互输入的命令行参数，也可以在命令行上直接指定。
+
+* 修改了 -u 参数 行为
+
+```
+wdpassport-utils.py -u passwd 直接完成硬盘解锁
+```
+
+* 修改了 -c 参数 行为
+```
+wdpassport-utils.py -c oldpasswd newpasswd 直接修改密码
+```
+* 如果 -c 后只有一个参数 ,那么根据当前硬盘状态进行判断。 
+```
+wdpassport-utils.py -c password   没有设置密码的设备，将以该password作为密码 ; 已经设置密码的设备，如果之前设置的密码与password相同，则清除该设备密码。
+```
+
+*  为 -e 增加了 YES 关键词
+```
+-e YES  无需用户确认，即可擦除设备的数据（数据擦除后无法恢复，该参数需谨慎使用）
+```
 
 
 

@@ -18,7 +18,7 @@ This tool was originally written by [0-duke](https://github.com/0-duke/wdpasspor
 
 ## Installing
 
-You'll need the Python 3 development headers to install this tool. On Ubuntu run:
+You'll need the Python 3 development headers to install this tool. On Ubuntu 22.04 LTS run:
 
 ```
 sudo apt install python3 python3-dev python3-pip git

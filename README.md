@@ -26,14 +26,11 @@ sudo apt install python3 python3-dev python3-pip git
 
 On other Linux distributions you may need a different command.
 
-Then use pip3 to install the source code in this repository:
-```
-sudo pip3 install git+https://github.com/0-duke/wdpassport-utils
-```
 
-and install the required "py_sg" module for Python3:
+You *must* use sudo in this command.  Usually that's a bad idea when running pip but we need to be root to access the devices.
+Then use pip to install the source code in this repository:
 ```
-sudo pip3 install --user git+https://github.com/crypto-universe/py_sg
+sudo pip install git+https://github.com/0-duke/wdpassport-utils
 ```
 
 ## Usage

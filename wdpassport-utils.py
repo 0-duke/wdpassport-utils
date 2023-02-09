@@ -11,7 +11,7 @@ import argparse
 import pyudev
 
 try:
-	import py_sg
+	import py3_sg as py_sg
 except ImportError as e:
 	print("You need to install the \"py_sg\" module. Try 'pip3 install --user git+https://github.com/crypto-universe/py_sg'.")
 	sys.exit(1)

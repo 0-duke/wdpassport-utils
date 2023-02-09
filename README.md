@@ -26,14 +26,9 @@ sudo apt install python3 python3-dev python3-pip git
 
 On other Linux distributions you may need a different command.
 
-Then use pip3 to install the source code in this repository:
+Then use pip to install the source code in this repository:
 ```
 pip install git+https://github.com/magikid/wdpassport-utils
-```
-
-and install the required "py_sg" module for Python3:
-```
-pip install git+https://github.com/crypto-universe/py_sg
 ```
 
 ## Usage

@@ -26,9 +26,11 @@ sudo apt install python3 python3-dev python3-pip git
 
 On other Linux distributions you may need a different command.
 
+
+You *must* use sudo in this command.  Usually that's a bad idea when running pip but we need to be root to access the devices.
 Then use pip to install the source code in this repository:
 ```
-pip install git+https://github.com/magikid/wdpassport-utils
+sudo pip install git+https://github.com/magikid/wdpassport-utils
 ```
 
 ## Usage

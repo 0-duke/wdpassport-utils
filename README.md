@@ -24,8 +24,12 @@ You'll need the Python 3 development headers to install this tool. On Ubuntu 22.
 sudo apt install python3 python3-dev python3-pip git
 ```
 
-On other Linux distributions you may need a different command.
+Install py3_sg via pip
+```
+sudo python3 -m pip install py3_sg
+```
 
+On other Linux distributions you may need a different command.
 
 You *must* use sudo in this command.  Usually that's a bad idea when running pip but we need to be root to access the devices.
 Then use pip to install the source code in this repository:

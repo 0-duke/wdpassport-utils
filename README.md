@@ -1,4 +1,32 @@
 
+
+## 修改说明
+
+为了配合wd passport linux tools GUI调用，修改了原来的脚本，将需要交互输入的命令行参数，也可以在命令行上直接指定。
+
+* 修改了 -u 参数 行为
+
+```
+wdpassport-utils.py -u passwd 直接完成硬盘解锁
+```
+
+* 修改了 -c 参数 行为
+```
+wdpassport-utils.py -c oldpasswd newpasswd 直接修改密码
+```
+* 如果 -c 后只有一个参数 ,那么根据当前硬盘状态进行判断。 
+```
+wdpassport-utils.py -c password   没有设置密码的设备，将以该password作为密码 ; 已经设置密码的设备，如果之前设置的密码与password相同，则清除该设备密码。
+```
+
+*  为 -e 增加了 YES 关键词
+```
+-e YES  无需用户确认，即可擦除设备的数据（数据擦除后无法恢复，该参数需谨慎使用）
+```
+
+
+
+
 # WD My Passport Drive Hardware Encryption Utility for Linux
 
 A Linux command-line utility to lock, unlock, and manage the hardware encryption functionality of Western Digital My Passport external drives. Written in Python 3.

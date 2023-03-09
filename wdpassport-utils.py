@@ -194,7 +194,7 @@ def mk_password_block(passwd, iteration, salt):
 	return password
 
 ## Unlock the device
-def unlock():
+def unlock(passwd):
 	global device_name
 
 	## Device should be in the correct state 
@@ -207,7 +207,7 @@ def unlock():
 		sys.exit(1)
 	
 	## Get password from user
-	passwd = getpass.getpass("[wdpassport] password for {}: ".format(device_name))
+	##	passwd = getpass.getpass("[wdpassport] password for {}: ".format(device_name))
 	
 	hash_parameters = read_handy_store_block1()
 	if not hash_parameters:
@@ -240,24 +240,39 @@ def unlock():
 ## 
 ## DEVICE HAS TO BE UNLOCKED TO PERFORM THIS OPERATION
 ##
-def change_password():
+def change_password(passwd1,passwd2):
 	# Check drive's current status.
 	status = get_encryption_status()
 	if (status["Locked"] not in (0x00, 0x02)):
 		print(fail("Device has to be unlocked or without encryption to perform this operation."))
 		sys.exit(1)
 
+	old_passwd=passwd1
+	new_passwd=passwd2
+
+	# If no parameters after -c
 	# Get and confirm the current and new password.
-	if status["Locked"] == 0x00:
+	if len(passwd1)==0 and len(passwd2)==0:
+		if status["Locked"] == 0x00:
 		# The device doesn't have a password.
-		old_passwd = ""
-	else:
-		old_passwd = getpass.getpass("Current password: ")
-	new_passwd = getpass.getpass("New password: ")
-	new_passwd2 = getpass.getpass("New password (again): ")
-	if new_passwd != new_passwd2:
-		print(fail("Password didn't match."))
-		sys.exit(1)
+			old_passwd = ""
+		else:
+			old_passwd = getpass.getpass("Current password: ")
+		new_passwd = getpass.getpass("New password: ")
+		new_passwd2 = getpass.getpass("New password (again): ")
+		if new_passwd != new_passwd2:
+			print(fail("Password didn't match."))
+			sys.exit(1)
+
+	# If one parameters after -c , Set or Clean password
+	if len(passwd1)>0 and len(passwd2)==0 :
+		if status["Locked"] == 0x00:
+			print("Set password on wd disk.")
+			old_passwd = ""
+			new_passwd = passwd1
+		else:
+			print("Clean password on wd disk.")
+			new_passwd = ""
 
 	## Both passwords shouldn't be empty
 	if (len(old_passwd) <= 0 and len(new_passwd) <= 0):
@@ -378,11 +393,12 @@ def main(argv):
 	global device_name
 
 	parser = argparse.ArgumentParser()
-	parser.add_argument("-u", "--unlock", required=False, action="store_true", help="Unlock")
+	parser.add_argument("-u", "--unlock", nargs='?', const="", required=False, help="Unlock. (-u password: unlock without confirmation)")
+	parser.add_argument("-c", "--change_passwd", nargs='*', required=False, help="Change (or disable) password.   (-c password : if no password , will set a new password; if has password, will clean the password ,set to no password.)  and you can use \"-c oldpassword newpassword\"  to change password form old one to new one ")
+	parser.add_argument("-e", "--erase", nargs='?', const="ask",required=False, help="Secure erase device. (-e YES : erase without confirmation)")
 	parser.add_argument("-m", "--mount", required=False, action="store_true", help="Enable mount point for an unlocked device")
-	parser.add_argument("-c", "--change_passwd", required=False, action="store_true", help="Change (or disable) password")
-	parser.add_argument("-e", "--erase", required=False, action="store_true", help="Secure erase device")
 	parser.add_argument("-d", "--device", dest="device", required=False, help="Force device path (ex. /dev/sdb). Usually you don't need this option.")
+
 
 	args = parser.parse_args()
 	
@@ -436,20 +452,38 @@ def main(argv):
 		print("Encryption type: %s" % cipher_id_to_str(status["Cipher"]))
 
 	## Perform actions.
-	if args.unlock:
-		unlock()
-	if args.change_passwd:
+	if  args.unlock is not None:
+		if len(args.unlock)==0:
+			## Get password from user
+			passwd = getpass.getpass("[wdpassport] password for {}: ".format(device_name))
+			unlock(passwd)
+		else:
+			unlock(args.unlock)
+		
+	if args.change_passwd is not None:
 		print("Changing password for {}...".format(device_name))
-		change_password()
+		if len(args.change_passwd)==0:
+			change_password("","")
+		if len(args.change_passwd)==1:
+			change_password(args.change_passwd[0],"")
+		if len(args.change_passwd)==2:
+			change_password(args.change_passwd[0],args.change_passwd[1])
+		if len(args.change_passwd)>2:
+			print(fail("-c  Only need one or two parameters."))
+
 	if args.erase:
-		print(question("All data on {} will be lost. Are you sure you want to continue? [y/N]".format(
-			device_name
-		)))
-		r = sys.stdin.read(1)
-		if r.lower() == 'y':
+		if args.erase=="YES":
 			secure_erase()
 		else:
-			print(success("Ok, nevermind."))
+			print(question("All data on {} will be lost. Are you sure you want to continue? [y/N]".format(
+				device_name
+			)))
+			r = sys.stdin.read(1)
+			if r.lower() == 'y':
+				secure_erase()
+			else:
+				print(success("Ok, nevermind."))	
+	
 	if args.mount:
 		enable_mount(device)
 
